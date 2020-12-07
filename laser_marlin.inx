@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <inkscape-extension xmlns="http://www.inkscape.org/namespace/inkscape/extension">
-    <_name>J Tech Photonics Laser Tool</_name>
-    <id>jtechphotonics.com</id>
-	<dependency type="executable" location="extensions">laser.py</dependency>
+    <_name>Marlin Laser Tool</_name>
+    <id>https://marlinfw.org</id>
+	<dependency type="executable" location="extensions">laser_marlin.py</dependency>
 	<dependency type="executable" location="extensions">inkex.py</dependency>
 
-	<param name="laser-command" type="string" _gui-text="Laser ON Command:">M03</param>
-	<param name="laser-off-command" type="string" _gui-text="Laser OFF Command:">M05</param>
 	<param name="travel-speed" type="int" min="0" max="15000" _gui-text="Travel Speed (mm/min or in/min):">3000</param>
 	<param name="laser-speed" type="int" min="0" max="15000" _gui-text="Laser Speed (mm/min or in/min):">750</param>
 	<param name="laser-power" type="int" min="0" max="20000" _gui-text="Laser Power S# (0-255 or 0-12000):">255</param>
@@ -30,7 +28,7 @@
   	</effect>
 
 	<script>
-		<command reldir="extensions" interpreter="python">laser.py</command>
+		<command reldir="extensions" interpreter="python">laser_marlin.py</command>
 	</script>
 
 </inkscape-extension>

@@ -613,12 +613,6 @@ class LaserGcode(inkex.Effect):
              "dest": "add_numeric_suffix_to_filename", "default": False,
              "help": "Add numeric suffix to file name"},
 
-            {"name": "--laser-command", "type": str, "dest": "laser_command",
-             "default": "M03", "help": "Laser gcode command"},
-
-            {"name": "--laser-off-command", "type": str, "dest": "laser_off_command",
-             "default": "M05", "help": "Laser gcode end command"},
-
             {"name": "--laser-speed", "type": int, "dest": "laser_speed", "default": 750,
              "help": "Laser speed (mm/min},"},
 
@@ -1449,10 +1443,8 @@ class LaserGcode(inkex.Effect):
             "id": "Laser Engraver",
             "penetration feed": self.options.laser_speed,
             "feed": self.options.laser_speed,
-            "gcode before path": ("G4 P0 \n" + self.options.laser_command + " S" + str(
-                int(self.options.laser_power)) + "\nG4 P" + self.options.power_delay),
-            "gcode after path": (
-                    "G4 P0 \n" + self.options.laser_off_command + " S0" + "\n" + "G1 F" + self.options.travel_speed),
+            "gcode before path": "M3 I S{}".format(int(self.options.laser_power)),
+            "gcode after path":  "M5 I S0"
         }
 
         self.get_info()
