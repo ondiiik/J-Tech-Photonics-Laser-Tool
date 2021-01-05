@@ -597,8 +597,9 @@ class LaserGCode(GCode):
     
     def append_next_pass(self, pass_num, z_rel = 0):
         self.append_lines(('',
-                           '; === [Pass {}] ==='.format(pass_num),
-                           'M117 Pass {}'.format(pass_num)))
+                           '; === [Pass {}/{}] ==='.format(*pass_num),
+                           'M400',
+                           'M117 Pass {}/{}'.format(*pass_num)))
         
         if not 0 == int(float(z_rel) * 1000):
             self.append_lines(('G91',
@@ -718,11 +719,10 @@ class InkscapePlugin(inkex.Effect):
                                  '; | Marlin-Laser Inkscape Plugin |',
                                  '; +------------------------------+',
                                  ';     Area    : [{} .. {}] x [{} .. {}]'.format(self.gcode.x_min,
-                                                                               self.gcode.x_max,
-                                                                               self.gcode.y_min,
-                                                                               self.gcode.y_max),
-                                 ''))
-        self.gcode.append_line(';     Options :'.format(str(dir(self.options))))
+                                                                                  self.gcode.x_max,
+                                                                                  self.gcode.y_min,
+                                                                                  self.gcode.y_max),
+                                 ';     Options :'))
         
         attrs    = vars(self.options)
         suppress = 'input_file', 'output', 'ids', 'selected_nodes', 'suppress_all_messages', 'log_create_log', 'log_filename', 'active_tab', 'self'
@@ -752,13 +752,15 @@ class InkscapePlugin(inkex.Effect):
         
         for i in range(passes):
             self.gcode.burn_speed = feed[i]
-            self.gcode.append_next_pass(i + 1, 0 if i == 0 else self.options.pass_depth)
+            self.gcode.append_next_pass((i + 1, passes), 0 if i == 0 else self.options.pass_depth)
             self.gcode.append_auto_block(gcode_pass)
         
         
-        self.gcode.append_lines(('','; Finalize burn process'))
+        self.gcode.append_lines(('', '; Finalize burn process'))
         self.gcode.append_laser_off()
-        self.gcode.append_lines(('G1 X0 Y0 ; Park head',
+        self.gcode.append_lines(('M400',
+                                 'M117 Job completed',
+                                 'G1 X0 Y0 ; Park head',
                                  '',
                                  '; User finalize G-Code',
                                  self.footer))
