@@ -562,10 +562,13 @@ class ArrangementGenetic:
 ###
 ################################################################################
 class LaserGCode(GCode):
-    def __init__(self, travel_speed = 3000, burn_speed = 200):
+    TRAVEL_SPEED_AUTO = -1
+    BURN_SPEED_AUTO   = -2
+    
+    def __init__(self):
         super().__init__()
-        self.travel_speed = travel_speed
-        self.burn_speed   = burn_speed
+        self.travel_speed = self.TRAVEL_SPEED_AUTO
+        self.burn_speed   = self.BURN_SPEED_AUTO
     
     
     @property
@@ -612,7 +615,21 @@ class LaserGCode(GCode):
     def append_laser_off(self):
         self.append_lines(('M5 S0',
                            self._travel_speed_cmd))
-
+    
+    
+    def append_auto_block(self, gcode):
+        for cmd in gcode:
+            if 'F' in cmd.command:
+                v = cmd.command['F']
+                
+                if   self.TRAVEL_SPEED_AUTO == v:
+                    cmd = cmd.copy()
+                    cmd.command['F'] = self._travel_speed
+                elif self.BURN_SPEED_AUTO == v:
+                    cmd = cmd.copy()
+                    cmd.command['F'] = self._burn_speed
+            
+            self.append_line(cmd)
 
 
 class InkscapePlugin(inkex.Effect):
@@ -691,6 +708,7 @@ class InkscapePlugin(inkex.Effect):
     
     def export_gcode(self):
         self.gcode.travel_speed = self.options.travel_speed
+        self.gcode.burn_speed   = self.options.laser_speed_initial
         
         self.gcode.rebuild()
         gcode_pass = self.gcode.gcode.copy()
@@ -724,13 +742,20 @@ class InkscapePlugin(inkex.Effect):
                                  '; Start JOB'))
         
         
-        self.gcode.append_next_pass(1)
-        self.gcode.append_lines(gcode_pass)
+        passes = self.options.passes
         
-        for x in range(1, self.options.passes):
-            self.gcode.append_next_pass(x + 1, self.options.pass_depth)
-            self.gcode.append_lines(gcode_pass)
-            
+        if passes > 1:
+            d    = (self.options.laser_speed_final - self.options.laser_speed_initial) / (passes - 1)
+            feed = tuple(self.options.laser_speed_initial + i * d for i in range(passes))
+        else:
+            feed = tuple(0)
+        
+        for i in range(passes):
+            self.gcode.burn_speed = feed[i]
+            self.gcode.append_next_pass(i + 1, 0 if i == 0 else self.options.pass_depth)
+            self.gcode.append_auto_block(gcode_pass)
+        
+        
         self.gcode.append_lines(('','; Finalize burn process'))
         self.gcode.append_laser_off()
         self.gcode.append_lines(('G1 X0 Y0 ; Park head',

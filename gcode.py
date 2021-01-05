@@ -2,11 +2,31 @@
 '''
 Created on Nov 29, 2020
 
-@author: OSi
+@author: OSi (Ondrej Sienczak)
 '''
 
 
+
 class GCode:
+    class Command:
+        __slots__ = 'self', 'command', 'txt', 'comment', 'position', 'id'
+        
+        def __init__(self, command, txt, comment, position, id):
+            self.command  = command
+            self.txt      = txt
+            self.comment  = comment
+            self.position = position
+            self.id       = id
+        
+        
+        def copy(self):
+            return GCode.Command(self.command.copy(),
+                                 self.txt,
+                                 self.comment,
+                                 self.position,
+                                 self.id)
+    
+    
     def __init__(self, gcode = None):
         self.file        =  gcode
         self.gcode       =  []
@@ -41,14 +61,14 @@ class GCode:
             fmt = '{:<' + str(self.max_cmd_len + 4) + '};{}\n'
             
             for cmd in self.gcode:
-                if   0 == len(cmd[1]) and 0 == len(cmd[2]):
+                if   0 == len(cmd.txt) and 0 == len(cmd.comment):
                     f.write('\n')
-                elif 0 == len(cmd[1]):
-                    f.write(';{}\n'.format(cmd[2]))
-                elif 0 == len(cmd[2]):
-                    f.write('{}\n'.format(cmd[1]))
+                elif 0 == len(cmd.txt):
+                    f.write(';{}\n'.format(cmd.comment))
+                elif 0 == len(cmd.comment):
+                    f.write('{}\n'.format(cmd.txt))
                 else:
-                    f.write(fmt.format(cmd[1], cmd[2]))
+                    f.write(fmt.format(cmd.txt, cmd.comment))
     
     
     def rebuild(self):
@@ -61,7 +81,7 @@ class GCode:
         mode_relative    = False
         
         for cmd in self.gcode:
-            c = cmd[0]
+            c = cmd.command
             
             # Track movement
             if 'G' in c:
@@ -83,7 +103,7 @@ class GCode:
                     for axis_id in axis_ids:
                         if axis_id in c: origin[axis_id] = c[axis_id] + position[axis_id]
             
-            cmd[3] = (position[val] for val in axis_ids)
+            cmd.position = (position[val] for val in axis_ids)
             
             # Build GCode line
             l = ''
@@ -94,17 +114,20 @@ class GCode:
                 v = c[g[0]]
                 
                 if isinstance(v, float):
-                    d = self._decimals(v)
+                    v = '{:.3f}'.format(v)
                     
-                    if d[2] == 0:
-                        l += '{}{}'.format(g[0], d[0])
-                    else:
-                        f  = '{}{}.{:0%i}' % d[2]
-                        l += f.format(g[0], d[0], d[1])
-                else:
-                    l += '{}{}'.format(g[0], v)
+                    while '0' == v[-1]:
+                        v = v[:-1]
+                    
+                    if '.' == v[-1]:
+                        v = v[:-1]
+                    
+                    if v == '-0':
+                        v = '0'
+                
+                l += '{}{}'.format(g[0], v)
             
-            cmd[1] = l
+            cmd.txt = l
             self.max_cmd_len = max(self.max_cmd_len, len(l))
     
     
@@ -118,10 +141,10 @@ class GCode:
                 if 1 == len(cmd):
                     cmd.append('')
                     
-                cmd      = [None, cmd[0], cmd[1], None, self.id]
+                cmd      = self.Command(None, cmd[0], cmd[1], None, self.id)
                 self.id += 1
                 
-                t = cmd[1].split(' ')
+                t = cmd.txt.split(' ')
                 g = {}
                 
                 for i in t:
@@ -132,7 +155,7 @@ class GCode:
                     v = i[1:]
                     
                     if c in 'MGTF':
-                        v = int(float(v) + 0.5)
+                        v = int(round(float(v)))
                     elif not v == '':
                         v = float(v)
                     else:
@@ -141,7 +164,7 @@ class GCode:
                     g[c] = v
                     
                     if 'M' == c and 117 == v:
-                        g[' '] = cmd[1][4:]
+                        g[' '] = cmd.txt[4:]
                         break
                 
                 if 'X' in g:
@@ -154,13 +177,13 @@ class GCode:
                     self.y_min = min(v, self.y_min)
                     self.y_max = max(v, self.y_max)
                     
-                cmd[0] = g
+                cmd.command = g
                 cmds.append(cmd)
                 
-                self.max_cmd_len = max(self.max_cmd_len, len(cmd[1]))
+                self.max_cmd_len = max(self.max_cmd_len, len(cmd.txt))
             
             return cmds
-        elif isinstance(line, list) and len(line) == 5:
+        elif isinstance(line, self.Command):
             return [line]
         else:
             raise TypeError('Unsupported line representation type {}'.format(type(line)))
@@ -173,29 +196,8 @@ class GCode:
     def append_lines(self, lines):
         for line in lines:
             self.gcode.extend(self.parse_line(line))
-    
-    
-    @staticmethod
-    def _decimals(v):
-        dt   = 1000, 100, 10, 1
-        base = dt[0]
-        
-        if v >= 0:
-            v = int((v + 0.5 / base) * base)
-        else:
-            v = int((v - 0.5 / base) * base)
-        
-        d = base
-        
-        for n in dt:
-            if 0 == v % n:
-                d = n
-                break
-        
-        if v >= 0:
-            return v // base,            (v % base) // d, dt.index(d)
-        else:
-            return v // base + 1, base - (v % base) // d, dt.index(d)
+
+
 
 
 if __name__ == '__main__':
