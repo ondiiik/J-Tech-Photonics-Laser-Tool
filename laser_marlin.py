@@ -38,6 +38,8 @@ import time
 import numpy
 import gettext
 
+from gcode import GCode
+
 _ = gettext.gettext
 
 # Deprecation hack. Access the formatStyle differently for inkscape >= 1.0
@@ -126,12 +128,8 @@ engraving_tolerance = 0.0001
 loft_lengths_tolerance = 0.0000001
 options = {}
 defaults = {
-    'header': """
-G90
-""",
-    'footer': """G1 X0 Y0
-
-"""
+    'header': '',
+    'footer': ''
 }
 
 intersection_recursion_depth = 10
@@ -563,110 +561,158 @@ class ArrangementGenetic:
 ###        Gcodetools class
 ###
 ################################################################################
-
-class LaserGcode(inkex.Effect):
-
-    def export_gcode(self, gcode):
-        gcode_pass = gcode
-        for x in range(1, self.options.passes):
-            gcode += "G91\nG1 Z-" + self.options.pass_depth + "\nG90\n" + gcode_pass
-        f = open(self.options.directory + self.options.file, "w")
-        f.write(
-            self.options.laser_off_command + " S0" + "\n" + self.header +
-            "G1 F" + self.options.travel_speed + "\n" + gcode + self.footer)
-        f.close()
-
-    def add_arguments_old(self):
-        add_option = self.OptionParser.add_option
-
-        for arg in self.arguments:
-            # Stringify add_option arguments
-            action = arg["action"] if "action" in arg else "store"
-            arg_type = {str: "str", int: "int", bool: "inkbool"}[arg["type"]]
-            default = arg["type"](arg["default"])
-
-            add_option("", arg["name"], action=action, type=arg_type, dest=arg["dest"],
-                       default=default, help=arg["help"])
-
-    def add_arguments_new(self):
-        add_argument = self.arg_parser.add_argument
-
-        for arg in self.arguments:
-            # Not using kwargs unpacking for clarity, flexibility and constancy with add_arguments_old
-            action = arg["action"] if "action" in arg else "store"
-            add_argument(arg["name"], action=action, type=arg["type"], dest=arg["dest"],
-                         default=arg["default"], help=arg["help"])
-
+class LaserGCode(GCode):
     def __init__(self):
-        inkex.Effect.__init__(self)
+        super().__init__()
+    
+    
+    def append_next_pass(self, pass_num, z_rel = 0):
+        self.append_lines(('',
+                           '; === [Pass {}] ==='.format(pass_num),
+                           'M117 Pass {}'.format(pass_num)))
+        
+        if not 0 == int(float(z_rel) * 1000):
+            self.append_lines(('G91',
+                               'G1 Z{:.3f}'.format(-float(z_rel)),
+                               'G90',
+                               ''))
 
+
+
+class InkscapePlugin(inkex.Effect):
+    def __init__(self):
+        super().__init__()
+        
+        # Create G-Code abstraction object
+        self.gcode = LaserGCode()
+        
         # Define command line arguments, inkex will use these to interface with the GUI defined in laser.ini
-
         self.arguments = [
             {"name": "--directory", "type": str, "dest": "directory",
              "default": "", "help": "Output directory"},
-
+            
             {"name": "--filename", "type": str, "dest": "file",
              "default": "output.gcode", "help": "File name"},
-
+            
             {"name": "--add-numeric-suffix-to-filename", "type": inkex.Boolean,
              "dest": "add_numeric_suffix_to_filename", "default": False,
              "help": "Add numeric suffix to file name"},
-
+            
             {"name": "--laser-speed", "type": int, "dest": "laser_speed", "default": 750,
              "help": "Laser speed (mm/min},"},
-
+            
             {"name": "--travel-speed", "type": str, "dest": "travel_speed",
              "default": "3000", "help": "Travel speed (mm/min},"},
-
+            
             {"name": "--laser-power", "type": int, "dest": "laser_power", "default": 255,
              "help": "S# is 256 or 10000 for full power"},
-
+            
             {"name": "--passes", "type": int, "dest": "passes", "default": 1,
              "help": "Quantity of passes"},
-
+            
             {"name": "--pass-depth", "type": str, "dest": "pass_depth", "default": 1,
              "help": "Depth of laser cut"},
-
+            
             {"name": "--power-delay", "type": str, "dest": "power_delay",
              "default": "0", "help": "Laser power-on delay (ms},"},
-
+            
             {"name": "--suppress-all-messages", "type": inkex.Boolean,
              "dest": "suppress_all_messages", "default": True,
              "help": "Hide messages during g-code generation"},
-
+            
             {"name": "--create-log", "type": bool, "dest": "log_create_log",
              "default": False, "help": "Create log files"},
-
+            
             {"name": "--log-filename", "type": str, "dest": "log_filename",
              "default": '', "help": "Create log files"},
-
+            
             {"name": "--engraving-draw-calculation-paths", "type": inkex.Boolean,
              "dest": "engraving_draw_calculation_paths", "default": False,
              "help": "Draw additional graphics to debug engraving path"},
-
+            
             {"name": "--unit", "type": str, "dest": "unit",
              "default": "G21 (All units in mm},", "help": "Units either mm or inches"},
-
+            
             {"name": "--active-tab", "type": str, "dest": "active_tab", "default": "",
              "help": "Defines which tab is active"},
-
+            
             {"name": "--biarc-max-split-depth", "type": int,
              "dest": "biarc_max_split_depth", "default": "4",
              "help": "Defines maximum depth of splitting while approximating using biarcs."}
         ]
-
+        
         if target_version < 1.0:
             self.add_arguments_old()
         else:
             self.add_arguments_new()
-
+            
         # Another hack to maintain support across different Inkscape versions
         if target_version < 1.0:
             self.selected_hack = self.selected
         else:
             self.selected_hack = self.svg.selected
-
+    
+    
+    def export_gcode(self):
+        self.gcode.rebuild()
+        gcode_pass = self.gcode.gcode.copy()
+        
+        self.gcode.gcode.clear()
+        self.gcode.append_lines(('; Start burning process',
+                                 ';     Area : [{} .. {}] x [{} .. {}])'.format(self.gcode.x_min,
+                                                                                self.gcode.x_max,
+                                                                                self.gcode.y_min,
+                                                                                self.gcode.y_max),
+                                 '',
+                                 'M5 S0 ; Turn off laser',
+                                 'G90 ; Set absolute coordinates',
+                                 'G{} ; Select units (G21 - mm, G20 - inches)'.format(21 if self.options.unit == "G21 (All units in mm)" else 20),
+                                 '',
+                                 '; User initial G-Code',
+                                 self.header,
+                                 '',
+                                 '; Start JOB',
+                                 'G1 F{}'.format(self.options.travel_speed)))
+        
+        self.gcode.append_next_pass(1)
+        self.gcode.append_lines(gcode_pass)
+        
+        for x in range(1, self.options.passes):
+            self.gcode.append_next_pass(x + 1, self.options.pass_depth)
+            self.gcode.append_lines(gcode_pass)
+            
+        self.gcode.append_lines(('',
+                                 '; Finalize burn process',
+                                 'M5 S0 ; Turn OFF laser',
+                                 'G1 X0 Y0 F3000 ; Park head',
+                                 '',
+                                 '; User finalize G-Code',
+                                 self.footer))
+        
+        self.gcode.save(os.path.join(self.options.directory, self.options.file))
+    
+    
+    def add_arguments_old(self):
+        add_option = self.OptionParser.add_option
+        
+        for arg in self.arguments:
+            # Stringify add_option arguments
+            action = arg["action"] if "action" in arg else "store"
+            arg_type = {str: "str", int: "int", bool: "inkbool"}[arg["type"]]
+            default = arg["type"](arg["default"])
+            
+            add_option("", arg["name"], action=action, type=arg_type, dest=arg["dest"],
+                       default=default, help=arg["help"])
+    
+    def add_arguments_new(self):
+        add_argument = self.arg_parser.add_argument
+        
+        for arg in self.arguments:
+            # Not using kwargs unpacking for clarity, flexibility and constancy with add_arguments_old
+            action = arg["action"] if "action" in arg else "store"
+            add_argument(arg["name"], action=action, type=arg["type"], dest=arg["dest"],
+                         default=arg["default"], help=arg["help"])
+    
     def parse_curve(self, p, layer, w=None, f=None):
         c = []
         if len(p) == 0:
@@ -812,11 +858,6 @@ class LaserGcode(inkex.Effect):
                 f.close()
             else:
                 self.footer = defaults['footer']
-
-            if self.options.unit == "G21 (All units in mm)":
-                self.header += "G21\n"
-            elif self.options.unit == "G20 (All units in inches)":
-                self.header += "G20\n"
         else:
             self.error(_("Directory does not exist! Please specify existing directory at options tab!"), "error")
             return False
@@ -861,7 +902,7 @@ class LaserGcode(inkex.Effect):
     def generate_gcode(self, curve, layer, depth):
         tool = self.tools
         print_("Tool in g-code generator: " + str(tool))
-
+        
         def c(c):
             c = [c[i] if i < len(c) else None for i in range(6)]
             if c[5] == 0: c[5] = None
@@ -871,18 +912,17 @@ class LaserGcode(inkex.Effect):
                 if c[i] != None:
                     r += s[i] + ("%f" % (round(c[i], 4))).rstrip('0')
             return r
-
-
+        
+        
         if len(curve) == 0: return ""
-
+        
         try:
             self.last_used_tool == None
         except:
             self.last_used_tool = None
         print_("working on curve")
         print_("Curve: " + str(curve))
-        g = ""
-
+        
         lg, f = 'G00', "F%f" % tool['penetration feed']
         penetration_feed = "F%s" % tool['penetration feed']
         current_a = 0
@@ -891,33 +931,36 @@ class LaserGcode(inkex.Effect):
             s, si = curve[i - 1], curve[i]
             feed = f if lg not in ['G01', 'G02', 'G03'] else ''
             if s[1] == 'move':
-                g += "G1 " + c(si[0]) + "\n" + tool['gcode before path'] + "\n"
+                self.gcode.append_lines(('G1 {}'.format(c(si[0])),
+                                         tool['gcode before path']))
                 lg = 'G00'
             elif s[1] == 'end':
-                g += tool['gcode after path'] + "\n"
+                self.gcode.append_line(tool['gcode after path'])
                 lg = 'G00'
             elif s[1] == 'line':
-                if lg == "G00": g += "G1 " + feed + "\n"
-                g += "G1 " + c(si[0]) + "\n"
+                if lg == "G00": 
+                    self.gcode.append_line('G1 {}'.format(feed))
+                self.gcode.append_line('G1 {}'.format(c(si[0])))
                 lg = 'G01'
             elif s[1] == 'arc':
                 r = [(s[2][0] - s[0][0]), (s[2][1] - s[0][1])]
-                if lg == "G00": g += "G1 " + feed + "\n"
+                if lg == "G00":
+                    self.gcode.append_line('G1 {}'.format(feed))
                 if (r[0] ** 2 + r[1] ** 2) > .1:
                     r1, r2 = (P(s[0]) - P(s[2])), (P(si[0]) - P(s[2]))
                     if abs(r1.mag() - r2.mag()) < 0.001:
-                        g += ("G2" if s[3] < 0 else "G3") + c(
-                            si[0] + [None, (s[2][0] - s[0][0]), (s[2][1] - s[0][1])]) + "\n"
+                        a  = c(si[0] + [None, (s[2][0] - s[0][0]), (s[2][1] - s[0][1])])
+                        self.gcode.append_line('G{} {}'.format(2 if s[3] < 0 else 3, a))
                     else:
                         r = (r1.mag() + r2.mag()) / 2
-                        g += ("G2" if s[3] < 0 else "G3") + c(si[0]) + " R%f" % (r) + "\n"
+                        a = c(si[0])
+                        self.gcode.append_line('G{} {} R{}'.format(2 if s[3] < 0 else 3, a, r))
                     lg = 'G02'
                 else:
-                    g += "G1 " + c(si[0]) + " " + feed + "\n"
+                    self.gcode.append_line('G1 {} {}'.format(c(si[0]), feed))
                     lg = 'G01'
         if si[1] == 'end':
-            g += tool['gcode after path'] + "\n"
-        return g
+            self.gcode.append_line('{}'.format(tool['gcode after path']))
 
 
     def get_transforms(self, g):
@@ -1299,7 +1342,6 @@ class LaserGcode(inkex.Effect):
             paths = self.selected_paths
 
         self.check_dir()
-        gcode = ""
 
         biarc_group = etree.SubElement(
             list(self.selected_paths.keys())[0] if len(list(self.selected_paths.keys())) > 0 else self.layers[0],
@@ -1331,9 +1373,9 @@ class LaserGcode(inkex.Effect):
                 dxfpoints = sort_dxfpoints(dxfpoints)
                 curve = self.parse_curve(p, layer)
                 self.draw_curve(curve, layer, biarc_group)
-                gcode += self.generate_gcode(curve, layer, 0)
+                self.generate_gcode(curve, layer, 0)
 
-        self.export_gcode(gcode)
+        self.export_gcode()
 
     ################################################################################
     #
@@ -1443,15 +1485,15 @@ class LaserGcode(inkex.Effect):
             "id": "Laser Engraver",
             "penetration feed": self.options.laser_speed,
             "feed": self.options.laser_speed,
-            "gcode before path": "M3 I S{}".format(int(self.options.laser_power)),
-            "gcode after path":  "M5 I S0"
+            "gcode before path": "M3 S{}".format(int(self.options.laser_power)),
+            "gcode after path":  "M5 S0"
         }
 
         self.get_info()
         self.laser()
 
 
-e = LaserGcode()
+e = InkscapePlugin()
 if target_version < 1.0:
     e.affect()
 else:
