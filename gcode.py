@@ -29,22 +29,6 @@ class GCode:
             self.rebuild()
     
     
-#     def rebuild(self):
-#         self.max_cmd_len = 0
-#         
-#         for cmd in self.gcode:
-#             c = cmd[0]
-#             
-#             l = ''
-#             for g in c:
-#                 if not l == '':
-#                     l += ' '
-#                 l += '{}{}'.format(g[0], c[g[0]])
-#             
-#             cmd[1] = l
-#             self.max_cmd_len = max(self.max_cmd_len, len(l))
-    
-    
     def save(self, output = None):
         file = output
         
