@@ -75,7 +75,7 @@ class GCode:
         self.max_cmd_len = 0
         axis_ids         = 'X', 'Y', 'Z', 'E'
         position         = { axis : 0 for axis in axis_ids }
-        origin           = { axis : 0 for axis in axis_ids }
+        origin           = position.copy()
         g_moves          = 0, 1, 2, 3, 5
         g_unsupported    = 6, 10, 11, 17, 18, 19, 20, 26, 27, 29, 30, 31, 32, 33, 34, 35, 42, 53, 60, 61, 76, 80, 425
         mode_relative    = False
@@ -92,9 +92,11 @@ class GCode:
                 elif g in g_moves:
                     for axis_id in axis_ids:
                         if mode_relative:
-                            if axis_id in c: position[axis_id]  = c[axis_id] + origin[axis_id]
+                            if axis_id in c:
+                                position[axis_id] += c[axis_id]
                         else:
-                            if axis_id in c: position[axis_id] += c[axis_id]
+                            if axis_id in c:
+                                position[axis_id]  = c[axis_id]
                 elif g == 90:
                     mode_relative = False
                 elif g == 91:
@@ -103,7 +105,10 @@ class GCode:
                     for axis_id in axis_ids:
                         if axis_id in c: origin[axis_id] = c[axis_id] + position[axis_id]
             
-            cmd.position = (position[val] for val in axis_ids)
+            cmd.position = position.copy()
+            
+            for axis_id in axis_ids:
+                cmd.position[axis_id] += origin[axis_id]
             
             # Build GCode line
             l = ''

@@ -608,6 +608,10 @@ class LaserGCode(GCode):
                                ''))
     
     
+    def append_speed(self):
+        self.append_line(self._burn_speed_cmd)
+    
+    
     def append_laser_on(self, power):
         self.append_lines((self._burn_speed_cmd,
                            "M3 S{}".format(int(power))))
@@ -631,6 +635,65 @@ class LaserGCode(GCode):
                     cmd.command['F'] = self._burn_speed
             
             self.append_line(cmd)
+    
+    
+    def append_zigzag(self, gcode, feed):
+        passes   = len(feed)
+        power    = 0
+        slices   = len(gcode)
+        slice    = 0
+        position = None
+        
+        for cmd in gcode:
+            slice += 1
+            
+            if 'M' in cmd.command:
+                if   cmd.command['M'] == 3:
+                    power = cmd.command['S']
+                elif cmd.command['M'] == 5:
+                    power = 0
+                continue
+            
+            if 'G' in cmd.command and 'F' in cmd.command:
+                continue
+            
+            if (0 == power) or ((position['X'] == cmd.position['X']) and (position['Y'] == cmd.position['Y'])):
+                cmd.comment = 'Not burning'
+                self.append_auto_block([cmd])
+                position = cmd.position
+                continue
+            
+            if (cmd.command['G'] == 1 or cmd.command['G'] == 0):
+                p = [position, cmd.position]
+                
+                self.append_lines(('; Slice {}/{} [{:.3f},{:.3f}] -> [{:.3f},{:.3f}]'.format(slice, slices, position['X'], position['Y'], cmd.position['X'], cmd.position['Y']),
+                                   'M117 Slice {}/{}'.format(slice, slices)))
+                
+                c = cmd.copy()
+                
+                for i in range(passes):
+                    self.burn_speed = feed[i]
+                    
+                    if i == 0:
+                        self.append_laser_on(power)
+                    else:
+                        self.append_speed()
+                    
+                    self.append_auto_block([c.copy()])
+                    c.command['X'] = p[i % 2]['X']
+                    c.command['Y'] = p[i % 2]['Y']
+                
+                self.append_laser_off()
+                
+                if 0 == passes % 2:
+                    self.append_auto_block([cmd])
+                
+                position = cmd.position
+                continue
+            
+            self.append_line('; PASS ?!?! {}'.format(cmd.position))
+            self.append_auto_block([cmd])
+
 
 
 class InkscapePlugin(inkex.Effect):
@@ -648,6 +711,10 @@ class InkscapePlugin(inkex.Effect):
             {"name": "--add-numeric-suffix-to-filename", "type": inkex.Boolean,
              "dest": "add_numeric_suffix_to_filename", "default": False,
              "help": "Add numeric suffix to file name"},
+            
+            {"name": "--zigzag", "type": inkex.Boolean,
+             "dest": "zigzag", "default": False,
+             "help": "Use zigzag mode"},
             
             {"name": "--laser-speed-initial", "type": int, "dest": "laser_speed_initial", "default": 200,
              "help": "Initial laser speed (mm/min),"},
@@ -742,18 +809,10 @@ class InkscapePlugin(inkex.Effect):
                                  '; Start JOB'))
         
         
-        passes = self.options.passes
-        
-        if passes > 1:
-            d    = (self.options.laser_speed_final - self.options.laser_speed_initial) / (passes - 1)
-            feed = tuple(self.options.laser_speed_initial + i * d for i in range(passes))
+        if not self.options.zigzag or self.options.passes == 1:
+            self.write_continuous(gcode_pass)
         else:
-            feed = tuple(0)
-        
-        for i in range(passes):
-            self.gcode.burn_speed = feed[i]
-            self.gcode.append_next_pass((i + 1, passes), 0 if i == 0 else self.options.pass_depth)
-            self.gcode.append_auto_block(gcode_pass)
+            self.write_zigzag(gcode_pass)
         
         
         self.gcode.append_lines(('', '; Finalize burn process'))
@@ -768,6 +827,30 @@ class InkscapePlugin(inkex.Effect):
         self.gcode.save(os.path.join(self.options.directory, self.options.file))
     
     
+    def write_zigzag(self, gcode_pass):
+        self.gcode.append_zigzag(gcode_pass, self.get_sppeds(self.options.passes))
+        self.gcode.rebuild()
+    
+    
+    def write_continuous(self, gcode_pass):
+        passes = self.options.passes
+        
+        if passes > 1:
+            feed = self.get_sppeds(passes)
+        else:
+            feed = tuple(0)
+        
+        for i in range(passes):
+            self.gcode.burn_speed = feed[i]
+            self.gcode.append_next_pass((i + 1, passes), 0 if i == 0 else self.options.pass_depth)
+            self.gcode.append_auto_block(gcode_pass)
+    
+    
+    def get_sppeds(self, passes):
+        d = (self.options.laser_speed_final - self.options.laser_speed_initial) / (passes - 1)
+        return tuple(self.options.laser_speed_initial + i * d for i in range(passes))
+    
+    
     def add_arguments_old(self):
         add_option = self.OptionParser.add_option
         
@@ -780,6 +863,7 @@ class InkscapePlugin(inkex.Effect):
             add_option("", arg["name"], action=action, type=arg_type, dest=arg["dest"],
                        default=default, help=arg["help"])
     
+    
     def add_arguments_new(self):
         add_argument = self.arg_parser.add_argument
         
@@ -789,12 +873,13 @@ class InkscapePlugin(inkex.Effect):
             add_argument(arg["name"], action=action, type=arg["type"], dest=arg["dest"],
                          default=arg["default"], help=arg["help"])
     
+    
     def parse_curve(self, p, layer, w=None, f=None):
         c = []
         if len(p) == 0:
             return []
         p = self.transform_csp(p, layer)
-
+        
         # Sort to reduce Rapid distance
         k = list(range(1, len(p)))
         keys = [0]
@@ -804,7 +889,7 @@ class InkscapePlugin(inkex.Effect):
             for i in range(len(k)):
                 start = p[k[i]][0][1]
                 dist = max((-((end[0] - start[0]) ** 2 + (end[1] - start[1]) ** 2), i), dist)
-
+                
             keys += [k[dist[1]]]
             del k[dist[1]]
         for k in keys:
@@ -819,9 +904,9 @@ class InkscapePlugin(inkex.Effect):
             c += [[[subpath[-1][1][0], subpath[-1][1][1]], 'end', 0, 0]]
             print_("Curve: " + str(c))
         return c
-
+    
+    
     def draw_curve(self, curve, layer, group=None, style=styles["biarc_style"]):
-
         self.get_defs()
         # Add marker to defs if it does not exist
         if "DrawCurveMarker" not in self.defs:
