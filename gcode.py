@@ -129,6 +129,8 @@ class GCode:
                     
                     if v == '-0':
                         v = '0'
+                elif v is None:
+                    v = ''
                 
                 l += '{}{}'.format(g[0], v)
             

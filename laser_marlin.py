@@ -603,9 +603,9 @@ class LaserGCode(GCode):
         self.append_line('G1 X{} Y{} F{} ; Move to origin'.format(self.x_min, self.y_min, speed))
         
         for i in range(loops):
-            self.append_lines(('M117 Locate {}/{}'.format(i, loops),
+            self.append_lines(('M117 Locate {}/{}'.format(i + 1, loops),
                                'M300 S440 P150',
-                               'M3 S{}'.format(intensity),
+                               'M3 S{} I'.format(intensity),
                                'G1 X{}'.format(self.x_max),
                                'G1 Y{}'.format(self.y_max),
                                'G1 X{}'.format(self.x_min),
@@ -616,7 +616,8 @@ class LaserGCode(GCode):
         
         self.append_lines(('G1 X{} Y{} ; Move to origin'.format((self.x_min + self.x_max) // 2, (self.y_min + self.y_max) // 2),
                            '',
-                           'M300 S660 P150      ; Start burning alert',
+                           'M117 Start burning!',
+                           'M300 S660 P150',
                            'M300 S1320 P150',
                            'M300 S660 P150',
                            'M300 S1320 P150'))
@@ -650,11 +651,11 @@ class LaserGCode(GCode):
     
     def append_laser_on(self, power):
         self.append_lines((self._burn_speed_cmd,
-                           "M3 S{}".format(int(power))))
+                           "M3 S{} I".format(int(power))))
     
     
     def append_laser_off(self):
-        self.append_lines(('M5 S0',
+        self.append_lines(('M5 S0 I',
                            self._travel_speed_cmd))
     
     
@@ -702,12 +703,12 @@ class LaserGCode(GCode):
             if (cmd.command['G'] == 1 or cmd.command['G'] == 0):
                 p = [position, cmd.position]
                 
-                self.append_lines(('; Slice {}/{} [{:.3f},{:.3f}] -> [{:.3f},{:.3f}]'.format(slice, slices, position['X'], position['Y'], cmd.position['X'], cmd.position['Y']),
-                                   'M117 Slice {}/{}'.format(slice, slices)))
+                self.append_line('; Slice {}/{} [{:.3f},{:.3f}] -> [{:.3f},{:.3f}]'.format(slice, slices, position['X'], position['Y'], cmd.position['X'], cmd.position['Y']))
                 
                 c = cmd.copy()
                 
                 for i in range(passes):
+                    self.append_line('M117 Slice {}/{} - Pass {}/{}'.format(slice, slices, i + 1, passes))
                     self.burn_speed = feed[i]
                     
                     if i == 0:
@@ -875,7 +876,7 @@ class InkscapePlugin(inkex.Effect):
         if passes > 1:
             feed = self.get_sppeds(passes)
         else:
-            feed = tuple(0)
+            feed = (0,)
         
         for i in range(passes):
             self.gcode.burn_speed = feed[i]
