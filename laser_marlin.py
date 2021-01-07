@@ -595,6 +595,42 @@ class LaserGCode(GCode):
         self._burn_speed_cmd = 'G1 F{}'.format(v)
     
     
+    def append_lookup_area(self, speed = 6000, loops = 16, intensity = 5):
+        
+        self.append_lines(('',
+                           '; Look-up area'))
+        self.append_laser_off()
+        self.append_line('G1 X{} Y{} F{} ; Move to origin'.format(self.x_min, self.y_min, speed))
+        
+        for i in range(loops):
+            self.append_lines(('M117 Locate {}/{}'.format(i, loops),
+                               'M300 S440 P150',
+                               'M3 S{}'.format(intensity),
+                               'G1 X{}'.format(self.x_max),
+                               'G1 Y{}'.format(self.y_max),
+                               'G1 X{}'.format(self.x_min),
+                               'G1 Y{}'.format(self.y_min),
+                               'M400'))
+        
+        self.append_laser_off()
+        
+        self.append_lines(('G1 X{} Y{} ; Move to origin'.format((self.x_min + self.x_max) // 2, (self.y_min + self.y_max) // 2),
+                           '',
+                           'M300 S660 P150      ; Start burning alert',
+                           'M300 S1320 P150',
+                           'M300 S660 P150',
+                           'M300 S1320 P150'))
+        
+        for i in range(7):
+            self.append_lines(('M300 S660 P150',
+                               'M300 S1320 P150',
+                               'M300 S660 P150',
+                               'M300 S1320 P150'))
+        
+        self.append_lines(('M400',
+                           ''))
+    
+    
     def append_next_pass(self, pass_num, z_rel = 0):
         self.append_lines(('',
                            '; === [Pass {}/{}] ==='.format(*pass_num),
@@ -785,10 +821,10 @@ class InkscapePlugin(inkex.Effect):
         self.gcode.append_lines(('; +------------------------------+',
                                  '; | Marlin-Laser Inkscape Plugin |',
                                  '; +------------------------------+',
-                                 ';     Area    : [{} .. {}] x [{} .. {}]'.format(self.gcode.x_min,
-                                                                                  self.gcode.x_max,
-                                                                                  self.gcode.y_min,
-                                                                                  self.gcode.y_max),
+                                 ';     Area    : [{:.1f} .. {:.1f}] x [{:.1f} .. {:.1f}]'.format(self.gcode.x_min,
+                                                                                                  self.gcode.x_max,
+                                                                                                  self.gcode.y_min,
+                                                                                                  self.gcode.y_max),
                                  ';     Options :'))
         
         attrs    = vars(self.options)
@@ -802,12 +838,13 @@ class InkscapePlugin(inkex.Effect):
         self.gcode.append_laser_off()
         self.gcode.append_lines(('G90 ; Set absolute coordinates',
                                  'G{} ; Select units (G21 - mm, G20 - inches)'.format(21 if self.options.unit == "G21 (All units in mm)" else 20),
+                                 'G28 ; Homing',
                                  '',
                                  '; User initial G-Code',
-                                 self.header,
-                                 '',
-                                 '; Start JOB'))
+                                 self.header))
+        self.gcode.append_lookup_area()
         
+        self.gcode.append_line('; Start JOB')
         
         if not self.options.zigzag or self.options.passes == 1:
             self.write_continuous(gcode_pass)
