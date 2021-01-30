@@ -595,23 +595,16 @@ class LaserGCode(GCode):
         self._burn_speed_cmd = 'G1 F{}'.format(v)
     
     
-    def append_lookup_area(self, speed = 6000, loops = 16, intensity = 5):
+    def append_lookup_area(self, speed = 20000, intensity = 5):
         
         self.append_lines(('',
                            '; Look-up area'))
         self.append_laser_off()
-        self.append_line('G1 X{} Y{} F{} ; Move to origin'.format(self.x_min, self.y_min, speed))
-        
-        for i in range(loops):
-            self.append_lines(('M117 Locate {}/{}'.format(i + 1, loops),
-                               'M300 S440 P150',
-                               'M3 S{} I'.format(intensity),
-                               'G1 X{}'.format(self.x_max),
-                               'G1 Y{}'.format(self.y_max),
-                               'G1 X{}'.format(self.x_min),
-                               'G1 Y{}'.format(self.y_min),
-                               'M400'))
-        
+        self.append_line('G93 X{} Y{} I{} J{} F{} ; Locate area'.format(self.x_min,
+                                                                        self.y_min,
+                                                                        self.x_max - self.x_min,
+                                                                        self.y_max - self.y_min,
+                                                                        speed))
         self.append_laser_off()
         
         self.append_lines(('G1 X{} Y{} ; Move to origin'.format((self.x_min + self.x_max) // 2, (self.y_min + self.y_max) // 2),
