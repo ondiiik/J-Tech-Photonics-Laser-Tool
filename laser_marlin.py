@@ -595,16 +595,25 @@ class LaserGCode(GCode):
         self._burn_speed_cmd = 'G1 F{}'.format(v)
     
     
-    def append_lookup_area(self, speed = 20000, intensity = 5):
+    def append_lookup_area(self, speed = 5000, intensity = 1):
         
         self.append_lines(('',
                            '; Look-up area'))
         self.append_laser_off()
-        self.append_line('G93 X{} Y{} I{} J{} F{} ; Locate area'.format(self.x_min,
-                                                                        self.y_min,
-                                                                        self.x_max - self.x_min,
-                                                                        self.y_max - self.y_min,
-                                                                        speed))
+        self.append_lines(('M300 S660 P50',
+                           'M300 S330 P50'))
+        self.append_line('G93 X{} Y{} I0 J0 F{} S{} ; Focuss laser'.format((self.x_min + self.x_max) // 2,
+                                                                           (self.y_min + self.y_max) // 2,
+                                                                           speed,
+                                                                           intensity))
+        self.append_lines(('M300 S660 P50',
+                           'M300 S330 P50'))
+        self.append_line('G93 X{} Y{} I{} J{} F{} S{} ; Locate area'.format(self.x_min,
+                                                                            self.y_min,
+                                                                            self.x_max - self.x_min,
+                                                                            self.y_max - self.y_min,
+                                                                            speed,
+                                                                            intensity))
         self.append_laser_off()
         
         self.append_lines(('G1 X{} Y{} ; Move to origin'.format((self.x_min + self.x_max) // 2, (self.y_min + self.y_max) // 2),
