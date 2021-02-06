@@ -432,8 +432,8 @@ class P:
 #        splits segment if needed or approximates it with straight line
 #
 ################################################################################
-def biarc(sp1, sp2, z1, z2, depth=0):
-    def biarc_split(sp1, sp2, z1, z2, depth):
+def biarc(sp1, sp2, z1, z2, depth, args):
+    def biarc_split(sp1, sp2, z1, z2, depth, args):
         if depth < options.biarc_max_split_depth:
             sp1, sp2, sp3 = csp_split(sp1, sp2)
             l1, l2 = cspseglength(sp1, sp2), cspseglength(sp2, sp3)
@@ -441,16 +441,16 @@ def biarc(sp1, sp2, z1, z2, depth=0):
                 zm = z1
             else:
                 zm = z1 + (z2 - z1) * l1 / (l1 + l2)
-            return biarc(sp1, sp2, z1, zm, depth + 1) + biarc(sp2, sp3, zm, z2, depth + 1)
+            return biarc(sp1, sp2, z1, zm, depth + 1, args) + biarc(sp2, sp3, zm, z2, depth + 1, args)
         else:
-            return [[sp1[1], 'line', 0, 0, sp2[1], [z1, z2]]]
+            return [[sp1[1], ['line', args], 0, 0, sp2[1], [z1, z2]]]
 
     P0, P4 = P(sp1[1]), P(sp2[1])
     TS, TE, v = (P(sp1[2]) - P0), -(P(sp2[0]) - P4), P0 - P4
     tsa, tea, va = TS.angle(), TE.angle(), v.angle()
     if TE.mag() < straight_distance_tolerance and TS.mag() < straight_distance_tolerance:
         # Both tangents are zerro - line straight
-        return [[sp1[1], 'line', 0, 0, sp2[1], [z1, z2]]]
+        return [[sp1[1], ['line', args], 0, 0, sp2[1], [z1, z2]]]
     if TE.mag() < straight_distance_tolerance:
         TE = -(TS + v).unit()
         r = TS.mag() / v.mag() * 2
@@ -470,11 +470,11 @@ def biarc(sp1, sp2, z1, z2, depth=0):
         # or one of tangents still smaller then tollerance
 
         # Both tangents and v are parallel - line straight
-        return [[sp1[1], 'line', 0, 0, sp2[1], [z1, z2]]]
+        return [[sp1[1], ['line', args], 0, 0, sp2[1], [z1, z2]]]
 
     c, b, a = v * v, 2 * v * (r * TS + TE), 2 * r * (TS * TE - 1)
     if v.mag() == 0:
-        return biarc_split(sp1, sp2, z1, z2, depth)
+        return biarc_split(sp1, sp2, z1, z2, depth, args)
     asmall, bsmall, csmall = abs(a) < 10 ** -10, abs(b) < 10 ** -10, abs(c) < 10 ** -10
     if asmall and b != 0:
         beta = -c / b
@@ -489,7 +489,7 @@ def biarc(sp1, sp2, z1, z2, depth=0):
         if beta1 * beta2 > 0:    raise ValueError(a, b, c, disq, beta1, beta2)
         beta = max(beta1, beta2)
     elif asmall and bsmall:
-        return biarc_split(sp1, sp2, z1, z2, depth)
+        return biarc_split(sp1, sp2, z1, z2, depth, args)
     alpha = beta * r
     ab = alpha + beta
     P1 = P0 + alpha * TS
@@ -514,18 +514,18 @@ def biarc(sp1, sp2, z1, z2, depth=0):
     R1, a1 = calculate_arc_params(P0, P1, P2)
     R2, a2 = calculate_arc_params(P2, P3, P4)
     if R1 == None or R2 == None or (R1 - P0).mag() < straight_tolerance or (
-            R2 - P2).mag() < straight_tolerance: return [[sp1[1], 'line', 0, 0, sp2[1], [z1, z2]]]
+            R2 - P2).mag() < straight_tolerance: return [[sp1[1], ['line', args], 0, 0, sp2[1], [z1, z2]]]
 
     d = csp_to_arc_distance(sp1, sp2, [P0, P2, R1, a1], [P2, P4, R2, a2])
     if d > 1 and depth < options.biarc_max_split_depth:
-        return biarc_split(sp1, sp2, z1, z2, depth)
+        return biarc_split(sp1, sp2, z1, z2, depth, args)
     else:
         if R2.mag() * a2 == 0:
             zm = z2
         else:
             zm = z1 + (z2 - z1) * (abs(R1.mag() * a1)) / (abs(R2.mag() * a2) + abs(R1.mag() * a1))
-        return [[sp1[1], 'arc', [R1.x, R1.y], a1, [P2.x, P2.y], [z1, zm]],
-                [[P2.x, P2.y], 'arc', [R2.x, R2.y], a2, [P4.x, P4.y], [zm, z2]]]
+        return [[sp1[1], ['arc', args], [R1.x, R1.y], a1, [P2.x, P2.y], [z1, zm]],
+                [[P2.x, P2.y], ['arc', args], [R2.x, R2.y], a2, [P4.x, P4.y], [zm, z2]]]
 
 
 ################################################################################
@@ -934,16 +934,12 @@ class InkscapePlugin(inkex.Effect):
             del k[dist[1]]
         for k in keys:
             subpath = p[k]
-            e       = [[[subpath[0][1][0], subpath[0][1][1]], ['move', a[k]], 0, 0]]
-            c      += e
+            c      += [[[subpath[0][1][0], subpath[0][1][1]], ['move', a[k]], 0, 0]]
             for i in range(1, len(subpath)):
-                sp1     = [[subpath[i - 1][j][0], subpath[i - 1][j][1]] for j in range(3)]
-                sp2     = [[subpath[i][j][0], subpath[i][j][1]] for j in range(3)]
-                e       = biarc(sp1, sp2, 0, 0) if w == None else biarc(sp1, sp2, -f(w[k][i - 1]), -f(w[k][i]))
-                e[0][1] = [e[0][1], a[k]]
-                c      += e
-            e  = [[[subpath[-1][1][0], subpath[-1][1][1]], ['end', a[k]], 0, 0]]
-            c += e
+                sp1 = [[subpath[i - 1][j][0], subpath[i - 1][j][1]] for j in range(3)]
+                sp2 = [[subpath[i][j][0], subpath[i][j][1]] for j in range(3)]
+                c  += biarc(sp1, sp2, 0, 0, 0, a[k]) if w == None else biarc(sp1, sp2, -f(w[k][i - 1]), -f(w[k][i]), 0, a[k])
+            c += [[[subpath[-1][1][0], subpath[-1][1][1]], ['end', a[k]], 0, 0]]
             print_("Curve: " + str(c))
         return c
     
@@ -1128,39 +1124,47 @@ class InkscapePlugin(inkex.Effect):
         except:
             self.last_used_tool = None
         
-        current_a = 0
+        l_max = 0
         
-        for i in range(1, len(curve)):
-            #    Creating Gcode for curve between s=curve[i-1] and si=curve[i] start at s[0] end at s[4]=si[0]
-            s, si = curve[i - 1], curve[i]
+        for c in curve:
+            l_max = max(c[1][1][2], l_max)
             
-            if 2 == len(s[1][1]) and not name == s[1][1][0]:
-                name = s[1][1][0][:]
-                self.gcode.append_lines(('',
-                                        '; [{}] <-- {}'.format(name, s[1][1][1])))
-            
-            
-            if   s[1][0] == 'move':
-                self.gcode.append_line('G1 {}'.format(code(si[0])))
-                self.gcode.append_laser_on(self.options.laser_power)
-            elif s[1][0] == 'end':
+        for l in range(l_max + 1):
+            for i in range(1, len(curve)):
+                #    Creating Gcode for curve between s=curve[i-1] and si=curve[i] start at s[0] end at s[4]=si[0]
+                s, si = curve[i - 1], curve[i]
+#                 self.gcode.append_line('; >>> DEBUG >>> :: GOT {}'.format(s))
+                if not name == s[1][1][0]:
+                    if not l == s[1][1][2]:
+                        continue
+                    a    = s[1][1]
+                    name = s[1][1][0][:]
+                    self.gcode.append_lines(('',
+                                            '; [{}] <-- {}'.format(name, s[1][1][1]),
+                                            'M117 >> {} <<'.format(name)))
+                
+                
+                if   s[1][0] == 'move':
+                    self.gcode.append_line('G1 {}'.format(code(si[0])))
+                    self.gcode.append_laser_on(self.options.laser_power)
+                elif s[1][0] == 'end':
+                    self.gcode.append_laser_off()
+                elif s[1][0] == 'line':
+                    self.gcode.append_line('G1 {}'.format(code(si[0])))
+                elif s[1][0] == 'arc':
+                    r = [(s[2][0] - s[0][0]), (s[2][1] - s[0][1])]
+                    if (r[0] ** 2 + r[1] ** 2) > .1:
+                        r1, r2 = (P(s[0]) - P(s[2])), (P(si[0]) - P(s[2]))
+                        if abs(r1.mag() - r2.mag()) < 0.001:
+                            self.gcode.append_line('G{} {}'.format(2 if s[3] < 0 else 3,
+                                                                   code(si[0] + [None, (s[2][0] - s[0][0]), (s[2][1] - s[0][1])])))
+                        else:
+                            self.gcode.append_line('G{} {} R{}'.format(2 if s[3] < 0 else 3,
+                                                                       code(si[0]),
+                                                                       (r1.mag() + r2.mag()) / 2))
+        
+            if si[1][0] == 'end':
                 self.gcode.append_laser_off()
-            elif s[1][0] == 'line':
-                self.gcode.append_line('G1 {}'.format(code(si[0])))
-            elif s[1][0] == 'arc':
-                r = [(s[2][0] - s[0][0]), (s[2][1] - s[0][1])]
-                if (r[0] ** 2 + r[1] ** 2) > .1:
-                    r1, r2 = (P(s[0]) - P(s[2])), (P(si[0]) - P(s[2]))
-                    if abs(r1.mag() - r2.mag()) < 0.001:
-                        self.gcode.append_line('G{} {}'.format(2 if s[3] < 0 else 3,
-                                                               code(si[0] + [None, (s[2][0] - s[0][0]), (s[2][1] - s[0][1])])))
-                    else:
-                        self.gcode.append_line('G{} {} R{}'.format(2 if s[3] < 0 else 3,
-                                                                   code(si[0]),
-                                                                   (r1.mag() + r2.mag()) / 2))
-        
-        if si[1][0] == 'end':
-            self.gcode.append_laser_off()
     
     
     def get_transforms(self, g):
@@ -1595,7 +1599,8 @@ class InkscapePlugin(inkex.Effect):
                     else:
                         # How to attach name and arguments?
                         p += csp
-                        a.append([name, args])
+                        a.append([name, args, len(p) - 1])
+#                         self.gcode.append_line('; >>> DEBUG >>> :: {}'.format(a[-1]))
                     
                 dxfpoints = sort_dxfpoints(dxfpoints)
                 curve = self.parse_curve(p, a, layer)
