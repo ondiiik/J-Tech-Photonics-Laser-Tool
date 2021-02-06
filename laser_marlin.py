@@ -653,7 +653,7 @@ class LaserGCode(GCode):
     
     def append_laser_on(self, power):
         self.append_lines((self._burn_speed_cmd,
-                           "M3 S{} I".format(int(power))))
+                           "M3 S{} I".format(int(round(power)))))
     
     
     def append_laser_off(self):
@@ -1134,19 +1134,23 @@ class InkscapePlugin(inkex.Effect):
                 #    Creating Gcode for curve between s=curve[i-1] and si=curve[i] start at s[0] end at s[4]=si[0]
                 s, si = curve[i - 1], curve[i]
 #                 self.gcode.append_line('; >>> DEBUG >>> :: GOT {}'.format(s))
+                args = { 's' : 1.0 }
+                
+                for a in s[1][1][1]:
+                    if a[0] in 'Ss':
+                        v = float(a[1:])
+                        args['s'] = v
+                
                 if not name == s[1][1][0]:
-                    if not l == s[1][1][2]:
-                        continue
                     a    = s[1][1]
                     name = s[1][1][0][:]
                     self.gcode.append_lines(('',
                                             '; [{}] <-- {}'.format(name, s[1][1][1]),
                                             'M117 >> {} <<'.format(name)))
                 
-                
                 if   s[1][0] == 'move':
                     self.gcode.append_line('G1 {}'.format(code(si[0])))
-                    self.gcode.append_laser_on(self.options.laser_power)
+                    self.gcode.append_laser_on(self.options.laser_power * args['s'])
                 elif s[1][0] == 'end':
                     self.gcode.append_laser_off()
                 elif s[1][0] == 'line':
@@ -1579,7 +1583,7 @@ class InkscapePlugin(inkex.Effect):
                     st = { i.split(':')[0] : i.split(':')[1] for i in path.get('style').split(';') }
                     
                     if 'opacity' in st:
-                        args.append('s{}'.format(round(float(st['opacity']) * 255)))
+                        args.append('s{}'.format(float(st['opacity'])))
                     
                     
                     print_(str(layer))
