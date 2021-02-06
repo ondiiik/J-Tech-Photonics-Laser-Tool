@@ -914,7 +914,7 @@ class InkscapePlugin(inkex.Effect):
                          default=arg["default"], help=arg["help"])
     
     
-    def parse_curve(self, p, layer, w=None, f=None):
+    def parse_curve(self, p, a, layer, w=None, f=None):
         c = []
         if len(p) == 0:
             return []
@@ -934,14 +934,16 @@ class InkscapePlugin(inkex.Effect):
             del k[dist[1]]
         for k in keys:
             subpath = p[k]
-            c += [[[subpath[0][1][0], subpath[0][1][1]], 'move', 0, 0]]
+            e       = [[[subpath[0][1][0], subpath[0][1][1]], ['move', a[k]], 0, 0]]
+            c      += e
             for i in range(1, len(subpath)):
-                sp1 = [[subpath[i - 1][j][0], subpath[i - 1][j][1]] for j in range(3)]
-                sp2 = [[subpath[i][j][0], subpath[i][j][1]] for j in range(3)]
-                c += biarc(sp1, sp2, 0, 0) if w == None else biarc(sp1, sp2, -f(w[k][i - 1]), -f(w[k][i]))
-            #                    l1 = biarc(sp1,sp2,0,0) if w==None else biarc(sp1,sp2,-f(w[k][i-1]),-f(w[k][i]))
-            #                    print_((-f(w[k][i-1]),-f(w[k][i]), [i1[5] for i1 in l1]) )
-            c += [[[subpath[-1][1][0], subpath[-1][1][1]], 'end', 0, 0]]
+                sp1     = [[subpath[i - 1][j][0], subpath[i - 1][j][1]] for j in range(3)]
+                sp2     = [[subpath[i][j][0], subpath[i][j][1]] for j in range(3)]
+                e       = biarc(sp1, sp2, 0, 0) if w == None else biarc(sp1, sp2, -f(w[k][i - 1]), -f(w[k][i]))
+                e[0][1] = [e[0][1], a[k]]
+                c      += e
+            e  = [[[subpath[-1][1][0], subpath[-1][1][1]], ['end', a[k]], 0, 0]]
+            c += e
             print_("Curve: " + str(c))
         return c
     
@@ -993,7 +995,7 @@ class InkscapePlugin(inkex.Effect):
                 self.transform(si[2], layer, True) if type(si[2]) == type([]) and len(si[2]) == 2 else si[2])
 
             if s != '':
-                if s[1] == 'line':
+                if s[1][0] == 'line':
                     etree.SubElement(group, inkex.addNS('path', 'svg'),
                                            {
                                                'style': style['line'],
@@ -1001,7 +1003,7 @@ class InkscapePlugin(inkex.Effect):
                                                "gcodetools": "Preview",
                                            }
                                            )
-                elif s[1] == 'arc':
+                elif s[1][0] == 'arc':
                     arcn += 1
                     sp = s[0]
                     c = s[2]
@@ -1099,8 +1101,7 @@ class InkscapePlugin(inkex.Effect):
     #       [start point, type = {'arc','line','move','end'}, arc center, arc angle, end point, [zstart, zend]]
     #
     ################################################################################
-    def generate_gcode(self, curve, layer, depth, args):
-        self.gcode.append_line('; DEBUG :: ARGS = {}'.format(args))
+    def generate_gcode(self, name, curve, layer, depth):
         def code(c):
             c = [c[i] if i < len(c) else None for i in range(6)]
             
@@ -1120,6 +1121,8 @@ class InkscapePlugin(inkex.Effect):
         if len(curve) == 0:
             return
         
+        name = ''
+        
         try:
             self.last_used_tool == None
         except:
@@ -1131,14 +1134,20 @@ class InkscapePlugin(inkex.Effect):
             #    Creating Gcode for curve between s=curve[i-1] and si=curve[i] start at s[0] end at s[4]=si[0]
             s, si = curve[i - 1], curve[i]
             
-            if   s[1] == 'move':
+            if 2 == len(s[1][1]) and not name == s[1][1][0]:
+                name = s[1][1][0][:]
+                self.gcode.append_lines(('',
+                                        '; [{}] <-- {}'.format(name, s[1][1][1])))
+            
+            
+            if   s[1][0] == 'move':
                 self.gcode.append_line('G1 {}'.format(code(si[0])))
                 self.gcode.append_laser_on(self.options.laser_power)
-            elif s[1] == 'end':
+            elif s[1][0] == 'end':
                 self.gcode.append_laser_off()
-            elif s[1] == 'line':
+            elif s[1][0] == 'line':
                 self.gcode.append_line('G1 {}'.format(code(si[0])))
-            elif s[1] == 'arc':
+            elif s[1][0] == 'arc':
                 r = [(s[2][0] - s[0][0]), (s[2][1] - s[0][1])]
                 if (r[0] ** 2 + r[1] ** 2) > .1:
                     r1, r2 = (P(s[0]) - P(s[2])), (P(si[0]) - P(s[2]))
@@ -1150,7 +1159,7 @@ class InkscapePlugin(inkex.Effect):
                                                                    code(si[0]),
                                                                    (r1.mag() + r2.mag()) / 2))
         
-        if si[1] == 'end':
+        if si[1][0] == 'end':
             self.gcode.append_laser_off()
     
     
@@ -1258,8 +1267,8 @@ class InkscapePlugin(inkex.Effect):
 
 
     def transform_csp(self, csp_, layer, reverse=False):
-        csp = [[[csp_[i][j][0][:], csp_[i][j][1][:], csp_[i][j][2][:]] for j in range(len(csp_[i]))] for i in
-               range(len(csp_))]
+        csp = [[[csp_[i][j][0][:], csp_[i][j][1][:], csp_[i][j][2][:]] for j in range(len(csp_[i]))] for i in range(len(csp_))]
+        
         for i in range(len(csp)):
             for j in range(len(csp[i])):
                 for k in range(len(csp[i][j])):
@@ -1543,17 +1552,21 @@ class InkscapePlugin(inkex.Effect):
             if layer in paths:
                 print_(("layer", layer))
                 p = []
+                a = []
                 dxfpoints = []
                 for path in paths[layer]:
                     # Parse arguments following after ~# in label description
                     args = path.label
+                    name = args
                     
                     if args is None:
                         args = ''
+                        name = path.get_id()
                     
                     args = args.split('~#')
                     
                     if len(args) > 1:
+                        name = args[0]
                         args = args[-1:]
                     else:
                         args = []
@@ -1580,12 +1593,14 @@ class InkscapePlugin(inkex.Effect):
                         print_("got dxfpoint (scaled) at (%f,%f)" % (x, y))
                         dxfpoints += [[x, y]]
                     else:
+                        # How to attach name and arguments?
                         p += csp
+                        a.append([name, args])
                     
                 dxfpoints = sort_dxfpoints(dxfpoints)
-                curve = self.parse_curve(p, layer)
+                curve = self.parse_curve(p, a, layer)
                 self.draw_curve(curve, layer, biarc_group)
-                self.generate_gcode(curve, layer, 0, args)
+                self.generate_gcode(name, curve, layer, 0)
         
         self.export_gcode()
 
