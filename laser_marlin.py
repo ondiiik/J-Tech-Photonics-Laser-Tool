@@ -661,8 +661,11 @@ class LaserGCode(GCode):
                            self._travel_speed_cmd))
     
     
-    def append_auto_block(self, gcode):
+    def append_auto_block(self, gcode, ps = -1):
         for cmd in gcode:
+            if '~#FO#~' in cmd.comment and ps > 0:
+                continue
+            
             if 'F' in cmd.command:
                 v = cmd.command['F']
                 
@@ -883,7 +886,7 @@ class InkscapePlugin(inkex.Effect):
         for i in range(passes):
             self.gcode.burn_speed = feed[i]
             self.gcode.append_next_pass((i + 1, passes), 0 if i == 0 else self.options.pass_depth)
-            self.gcode.append_auto_block(gcode_pass)
+            self.gcode.append_auto_block(gcode_pass, i)
     
     
     def get_sppeds(self, passes):
@@ -1134,12 +1137,13 @@ class InkscapePlugin(inkex.Effect):
                 #    Creating Gcode for curve between s=curve[i-1] and si=curve[i] start at s[0] end at s[4]=si[0]
                 s, si = curve[i - 1], curve[i]
 #                 self.gcode.append_line('; >>> DEBUG >>> :: GOT {}'.format(s))
-                args = { 's' : 1.0 }
+                args = { 's' : 1.0, 'c' : 0 }
                 
                 for a in s[1][1][1]:
                     if a[0] in 'Ss':
-                        v = float(a[1:])
-                        args['s'] = v
+                        args['s'] = float(a[1:])
+                    if a[0] in 'Cc':
+                        args['c'] = int(a[1:])
                 
                 if not name == s[1][1][0]:
                     a    = s[1][1]
@@ -1148,24 +1152,28 @@ class InkscapePlugin(inkex.Effect):
                                             '; [{}] <-- {}'.format(name, s[1][1][1]),
                                             'M117 >> {} <<'.format(name)))
                 
+                appendix = ';~#FO#~' if 255 == args['c'] else ''
+                 
                 if   s[1][0] == 'move':
-                    self.gcode.append_line('G1 {}'.format(code(si[0])))
+                    self.gcode.append_line('G1 {}{}'.format(code(si[0]), appendix))
                     self.gcode.append_laser_on(self.options.laser_power * args['s'])
                 elif s[1][0] == 'end':
                     self.gcode.append_laser_off()
                 elif s[1][0] == 'line':
-                    self.gcode.append_line('G1 {}'.format(code(si[0])))
+                    self.gcode.append_line('G1 {}{}'.format(code(si[0]), appendix))
                 elif s[1][0] == 'arc':
                     r = [(s[2][0] - s[0][0]), (s[2][1] - s[0][1])]
                     if (r[0] ** 2 + r[1] ** 2) > .1:
                         r1, r2 = (P(s[0]) - P(s[2])), (P(si[0]) - P(s[2]))
                         if abs(r1.mag() - r2.mag()) < 0.001:
-                            self.gcode.append_line('G{} {}'.format(2 if s[3] < 0 else 3,
-                                                                   code(si[0] + [None, (s[2][0] - s[0][0]), (s[2][1] - s[0][1])])))
+                            self.gcode.append_line('G{} {}{}'.format(2 if s[3] < 0 else 3,
+                                                                     code(si[0] + [None, (s[2][0] - s[0][0]), (s[2][1] - s[0][1])]),
+                                                                     appendix))
                         else:
-                            self.gcode.append_line('G{} {} R{}'.format(2 if s[3] < 0 else 3,
-                                                                       code(si[0]),
-                                                                       (r1.mag() + r2.mag()) / 2))
+                            self.gcode.append_line('G{} {} R{}{}'.format(2 if s[3] < 0 else 3,
+                                                                         code(si[0]),
+                                                                         (r1.mag() + r2.mag()) / 2,
+                                                                         appendix))
         
             if si[1][0] == 'end':
                 self.gcode.append_laser_off()
@@ -1584,6 +1592,8 @@ class InkscapePlugin(inkex.Effect):
                     
                     if 'opacity' in st:
                         args.append('s{}'.format(float(st['opacity'])))
+                    if 'stroke' in st:
+                        args.append('c{}'.format(int(st['stroke'][1:], 16)))
                     
                     
                     print_(str(layer))
