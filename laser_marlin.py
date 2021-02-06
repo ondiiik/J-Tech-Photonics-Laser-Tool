@@ -1099,7 +1099,8 @@ class InkscapePlugin(inkex.Effect):
     #       [start point, type = {'arc','line','move','end'}, arc center, arc angle, end point, [zstart, zend]]
     #
     ################################################################################
-    def generate_gcode(self, curve, layer, depth):
+    def generate_gcode(self, curve, layer, depth, args):
+        self.gcode.append_line('; DEBUG :: ARGS = {}'.format(args))
         def code(c):
             c = [c[i] if i < len(c) else None for i in range(6)]
             
@@ -1544,6 +1545,26 @@ class InkscapePlugin(inkex.Effect):
                 p = []
                 dxfpoints = []
                 for path in paths[layer]:
+                    # Parse arguments following after ~# in label description
+                    args = path.label
+                    
+                    if args is None:
+                        args = ''
+                    
+                    args = args.split('~#')
+                    
+                    if len(args) > 1:
+                        args = args[-1:]
+                    else:
+                        args = []
+                    
+                    # parse style to be able to set intensity from opacity
+                    st = { i.split(':')[0] : i.split(':')[1] for i in path.get('style').split(';') }
+                    
+                    if 'opacity' in st:
+                        args.append('s{}'.format(round(float(st['opacity']) * 255)))
+                    
+                    
                     print_(str(layer))
                     if "d" not in list(path.keys()):
                         self.error(_(
@@ -1560,10 +1581,11 @@ class InkscapePlugin(inkex.Effect):
                         dxfpoints += [[x, y]]
                     else:
                         p += csp
+                    
                 dxfpoints = sort_dxfpoints(dxfpoints)
                 curve = self.parse_curve(p, layer)
                 self.draw_curve(curve, layer, biarc_group)
-                self.generate_gcode(curve, layer, 0)
+                self.generate_gcode(curve, layer, 0, args)
         
         self.export_gcode()
 
