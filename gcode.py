@@ -65,7 +65,7 @@ class GCode:
             
             for cmd in self.gcode:
                 if self.debug:
-                    f.write('user={:<58} >>> '.format(str(cmd.user)))
+                    f.write('user={} >>> '.format(cmd.user))
                 
                 if   0 == len(cmd.txt) and 0 == len(cmd.comment):
                     f.write('\n')
@@ -139,6 +139,10 @@ class GCode:
                     v = ''
                 
                 l += '{}{}'.format(g[0], v)
+            
+            if 'M' in c:
+                if 117 == c['M']:
+                    l = l[:4] + l[6:]
             
             cmd.txt = l
             self.max_cmd_len = max(self.max_cmd_len, len(l))

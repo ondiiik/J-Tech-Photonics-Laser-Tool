@@ -574,13 +574,14 @@ class LaserGCode(GCode):
     
     
     def reset_user(self):
-        self.set_user('<main>', -1, False)
+        self.set_user('<main>', -1, False, 1)
     
     
-    def set_user(self, name, idx, one_pass):
-        self.user = { 'name'     : name,
-                      'idx'      : idx,
-                      'one_pass' : one_pass }
+    def set_user(self, name, idx, one_pass, speed_factor):
+        self.user = { 'name'         : name,
+                      'idx'          : idx,
+                      'one_pass'     : one_pass,
+                      'speed_factor' : speed_factor }
     
     
     @property
@@ -656,9 +657,7 @@ class LaserGCode(GCode):
     
     def append_next_pass(self, pass_num, z_rel = 0):
         self.append_lines(('',
-                           '; === [Pass {}/{}] ==='.format(*pass_num),
-                           'M400',
-                           'M117 Pass {}/{}'.format(*pass_num)))
+                           '; === [Pass {}/{}] ==='.format(*pass_num)))
         
         if not 0 == int(float(z_rel) * 1000):
             self.append_lines(('G91',
@@ -681,7 +680,7 @@ class LaserGCode(GCode):
                            self._travel_speed_cmd))
     
     
-    def append_auto_block(self, gcode, ps = -1):
+    def append_auto_block(self, gcode, ps = -1, pc = -1):
         for cmd in gcode:
             if cmd.user['one_pass'] and ps > 0:
                 continue
@@ -694,67 +693,73 @@ class LaserGCode(GCode):
                     cmd.command['F'] = self._travel_speed
                 elif self.BURN_SPEED_AUTO == v:
                     cmd = cmd.copy()
-                    cmd.command['F'] = self._burn_speed
+                    cmd.command['F'] = self._burn_speed * cmd.user['speed_factor']
+            
+            if 'M' in cmd.command:
+                if 117 == cmd.command['M']:
+                    cmd = cmd.copy()
+                    cmd.command[' '] = cmd.command[' '].replace('~#ST#~', '{}/{}'.format(ps + 1, pc))
             
             self.append_line(cmd)
     
     
     def append_zigzag(self, gcode, feed):
-        passes   = len(feed)
-        power    = 0
-        slices   = len(gcode)
-        slice    = 0
-        position = None
-        
-        for cmd in gcode:
-            slice += 1
-            
-            if 'M' in cmd.command:
-                if   cmd.command['M'] == 3:
-                    power = cmd.command['S']
-                elif cmd.command['M'] == 5:
-                    power = 0
-                continue
-            
-            if 'G' in cmd.command and 'F' in cmd.command:
-                continue
-            
-            if (0 == power) or ((position['X'] == cmd.position['X']) and (position['Y'] == cmd.position['Y'])):
-                cmd.comment = 'Not burning'
-                self.append_auto_block([cmd])
-                position = cmd.position
-                continue
-            
-            if (cmd.command['G'] == 1 or cmd.command['G'] == 0):
-                p = [position, cmd.position]
-                
-                self.append_line('; Slice {}/{} [{:.3f},{:.3f}] -> [{:.3f},{:.3f}]'.format(slice, slices, position['X'], position['Y'], cmd.position['X'], cmd.position['Y']))
-                
-                c = cmd.copy()
-                
-                for i in range(passes):
-                    self.append_line('M117 Slice {}/{} - Pass {}/{}'.format(slice, slices, i + 1, passes))
-                    self.burn_speed = feed[i]
-                    
-                    if i == 0:
-                        self.append_laser_on(power)
-                    else:
-                        self.append_speed()
-                    
-                    self.append_auto_block([c.copy()])
-                    c.command['X'] = p[i % 2]['X']
-                    c.command['Y'] = p[i % 2]['Y']
-                
-                self.append_laser_off()
-                
-                if 0 == passes % 2:
-                    self.append_auto_block([cmd])
-                
-                position = cmd.position
-                continue
-            
-            self.append_line('; PASS ?!?! {}'.format(cmd.position))
-            self.auto_insert([cmd])
+        raise NotImplemented('Zig-zag mode not supported yet')
+#         passes   = len(feed)
+#         power    = 0
+#         slices   = len(gcode)
+#         slice    = 0
+#         position = None
+#         
+#         for cmd in gcode:
+#             slice += 1
+#             
+#             if 'M' in cmd.command:
+#                 if   cmd.command['M'] == 3:
+#                     power = cmd.command['S']
+#                 elif cmd.command['M'] == 5:
+#                     power = 0
+#                 continue
+#             
+#             if 'G' in cmd.command and 'F' in cmd.command:
+#                 continue
+#             
+#             if (0 == power) or ((position['X'] == cmd.position['X']) and (position['Y'] == cmd.position['Y'])):
+#                 cmd.comment = 'Not burning'
+#                 self.append_auto_block([cmd])
+#                 position = cmd.position
+#                 continue
+#             
+#             if (cmd.command['G'] == 1 or cmd.command['G'] == 0):
+#                 p = [position, cmd.position]
+#                 
+# #                 self.append_line('; Slice {}/{} [{:.3f},{:.3f}] -> [{:.3f},{:.3f}]'.format(slice, slices, position['X'], position['Y'], cmd.position['X'], cmd.position['Y']))
+#                 
+#                 c = cmd.copy()
+#                 
+#                 for i in range(passes):
+# #                     self.append_line('M117 Slice {}/{} - Pass {}/{}'.format(slice, slices, i + 1, passes))
+#                     self.burn_speed = feed[i]
+#                     
+#                     if i == 0:
+#                         self.append_laser_on(power)
+#                     else:
+#                         self.append_speed()
+#                     
+#                     self.append_auto_block([c.copy()])
+#                     c.command['X'] = p[i % 2]['X']
+#                     c.command['Y'] = p[i % 2]['Y']
+#                 
+#                 self.append_laser_off()
+#                 
+#                 if 0 == passes % 2:
+#                     self.append_auto_block([cmd])
+#                 
+#                 position = cmd.position
+#                 continue
+#             
+#             self.append_line('; PASS ?!?! {}'.format(cmd.position))
+#             self.append_auto_block([cmd])
 
 
 
@@ -788,7 +793,7 @@ class InkscapePlugin(inkex.Effect):
              "default": "3000", "help": "Travel speed (mm/min),"},
             
             {"name": "--laser-power", "type": int, "dest": "laser_power", "default": 255,
-             "help": "S# is 256 or 10000 for full power"},
+             "help": "S# is 256 for full power"},
             
             {"name": "--passes", "type": int, "dest": "passes", "default": 1,
              "help": "Quantity of passes"},
@@ -906,7 +911,7 @@ class InkscapePlugin(inkex.Effect):
         for i in range(passes):
             self.gcode.burn_speed = feed[i]
             self.gcode.append_next_pass((i + 1, passes), 0 if i == 0 else self.options.pass_depth)
-            self.gcode.append_auto_block(gcode_pass, i)
+            self.gcode.append_auto_block(gcode_pass, i, passes)
     
     
     def get_sppeds(self, passes):
@@ -1173,12 +1178,14 @@ class InkscapePlugin(inkex.Effect):
                 
                 self.gcode.set_user(name,
                                     s[1][1][2],
-                                    255 == args['c'] & 255)
+                                    0xFF == args['c'] & 0xFF,
+                                    2 if 0xFF0000 == args['c'] & 0xFF0000 else 1)
                 
                 if name_changed:
                     self.gcode.append_lines(('',
-                                            '; [{}] <-- {}'.format(name, s[1][1][1]),
-                                            'M117 >> {} <<'.format(name)))
+                                            '; >>> {}{}'.format(name, s[1][1][1]),
+                                            'M400',
+                                            'M117 [~#ST#~] {}'.format(name)))
                 
                 if   s[1][0] == 'move':
                     self.gcode.append_line('G1 {}'.format(code(si[0])))
@@ -1639,7 +1646,7 @@ class InkscapePlugin(inkex.Effect):
                         # How to attach name and arguments?
                         p += csp
                         a.append([name, args, len(p) - 1])
-                        self.gcode.append_line('; >>> DEBUG >>> :: CSP {}'.format(a[-1]))
+#                         self.gcode.append_line('; >>> DEBUG >>> :: CSP {}'.format(a[-1]))
                     
                 dxfpoints = sort_dxfpoints(dxfpoints)
                 curve = self.parse_curve(p, a, layer)
