@@ -9,14 +9,15 @@ Created on Nov 29, 2020
 
 class GCode:
     class Command:
-        __slots__ = 'self', 'command', 'txt', 'comment', 'position', 'id'
+        __slots__ = 'self', 'command', 'txt', 'comment', 'position', 'id', 'user'
         
-        def __init__(self, command, txt, comment, position, id):
+        def __init__(self, command, txt, comment, position, id, user):
             self.command  = command
             self.txt      = txt
             self.comment  = comment
             self.position = position
             self.id       = id
+            self.user     = user
         
         
         def copy(self):
@@ -24,11 +25,13 @@ class GCode:
                                  self.txt,
                                  self.comment,
                                  self.position,
-                                 self.id)
+                                 self.id,
+                                 self.user)
     
     
-    def __init__(self, gcode = None):
+    def __init__(self, gcode = None, debug = False):
         self.file        =  gcode
+        self.debug       =  debug
         self.gcode       =  []
         self.max_cmd_len =  0
         self.id          =  1
@@ -61,6 +64,9 @@ class GCode:
             fmt = '{:<' + str(self.max_cmd_len + 4) + '};{}\n'
             
             for cmd in self.gcode:
+                if self.debug:
+                    f.write('user={:<58} >>> '.format(str(cmd.user)))
+                
                 if   0 == len(cmd.txt) and 0 == len(cmd.comment):
                     f.write('\n')
                 elif 0 == len(cmd.txt):
@@ -138,7 +144,7 @@ class GCode:
             self.max_cmd_len = max(self.max_cmd_len, len(l))
     
     
-    def parse_line(self, line):
+    def parse_line(self, line, user = None):
         cmds = []
         
         if isinstance(line, str):
@@ -148,7 +154,7 @@ class GCode:
                 if 1 == len(cmd):
                     cmd.append('')
                     
-                cmd      = self.Command(None, cmd[0], cmd[1], None, self.id)
+                cmd      = self.Command(None, cmd[0], cmd[1], None, self.id, user)
                 self.id += 1
                 
                 t = cmd.txt.split(' ')
@@ -196,13 +202,13 @@ class GCode:
             raise TypeError('Unsupported line representation type {}'.format(type(line)))
     
     
-    def append_line(self, line):
-        self.gcode.extend(self.parse_line(line))
+    def append_line(self, line, user = None):
+        self.gcode.extend(self.parse_line(line, user))
     
     
-    def append_lines(self, lines):
+    def append_lines(self, lines, user = None):
         for line in lines:
-            self.gcode.extend(self.parse_line(line))
+            self.gcode.extend(self.parse_line(line, user))
 
 
 

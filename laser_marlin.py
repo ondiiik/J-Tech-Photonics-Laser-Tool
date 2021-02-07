@@ -565,11 +565,22 @@ class LaserGCode(GCode):
     TRAVEL_SPEED_AUTO = -1
     BURN_SPEED_AUTO   = -2
     
+    
     def __init__(self):
-        super().__init__()
+        super().__init__(debug = False)
         self.travel_speed = self.TRAVEL_SPEED_AUTO
         self.burn_speed   = self.BURN_SPEED_AUTO
-        self.user         = { 'one_pass' : False }
+        self.reset_user()
+    
+    
+    def reset_user(self):
+        self.set_user('<main>', -1, False)
+    
+    
+    def set_user(self, name, idx, one_pass):
+        self.user = { 'name'     : name,
+                      'idx'      : idx,
+                      'one_pass' : one_pass }
     
     
     @property
@@ -673,7 +684,6 @@ class LaserGCode(GCode):
     def append_auto_block(self, gcode, ps = -1):
         for cmd in gcode:
             if cmd.user['one_pass'] and ps > 0:
-                self.append_line('; >>> DEBUG >>> :: SKIP {}'.format((cmd.user, ps)))
                 continue
             
             if 'F' in cmd.command:
@@ -1145,9 +1155,7 @@ class InkscapePlugin(inkex.Effect):
 #         for l in range(l_max + 1):
         if True:
             for i in range(1, len(curve)):
-                #    Creating Gcode for curve between s=curve[i-1] and si=curve[i] start at s[0] end at s[4]=si[0]
                 s, si = curve[i - 1], curve[i]
-#                 self.gcode.append_line('; >>> DEBUG >>> :: GOT {}'.format(s))
                 args = { 's' : 1.0, 'c' : 0 }
                 
                 for a in s[1][1][1]:
@@ -1156,16 +1164,22 @@ class InkscapePlugin(inkex.Effect):
                     if a[0] in 'Cc':
                         args['c'] = int(a[1:])
                 
+                name_changed = False
+                
                 if not name == s[1][1][0]:
-                    a    = s[1][1]
-                    name = s[1][1][0][:]
+                    name_changed = True
+                    a            = s[1][1]
+                    name         = s[1][1][0][:]
+                
+                self.gcode.set_user(name,
+                                    s[1][1][2],
+                                    255 == args['c'] & 255)
+                
+                if name_changed:
                     self.gcode.append_lines(('',
                                             '; [{}] <-- {}'.format(name, s[1][1][1]),
                                             'M117 >> {} <<'.format(name)))
                 
-                self.gcode.user = { 'one_pass' : 255 == args['c'] & 255 }
-                self.gcode.append_line('; >>> DEBUG >>> :: PASS-SET {}'.format(self.gcode.user))
-                 
                 if   s[1][0] == 'move':
                     self.gcode.append_line('G1 {}'.format(code(si[0])))
                     self.gcode.append_laser_on(self.options.laser_power * args['s'])
@@ -1184,7 +1198,8 @@ class InkscapePlugin(inkex.Effect):
                             self.gcode.append_line('G{} {} R{}'.format(2 if s[3] < 0 else 3,
                                                                        code(si[0]),
                                                                        (r1.mag() + r2.mag()) / 2))
-        
+            
+            self.gcode.reset_user()
             if si[1][0] == 'end':
                 self.gcode.append_laser_off()
     
