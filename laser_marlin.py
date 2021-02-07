@@ -569,6 +569,7 @@ class LaserGCode(GCode):
         super().__init__()
         self.travel_speed = self.TRAVEL_SPEED_AUTO
         self.burn_speed   = self.BURN_SPEED_AUTO
+        self.user         = { 'one_pass' : False }
     
     
     @property
@@ -593,6 +594,14 @@ class LaserGCode(GCode):
         v                    = int(val)
         self._burn_speed     = v
         self._burn_speed_cmd = 'G1 F{}'.format(v)
+    
+    
+    def append_line(self, line):
+        GCode.append_line(self, line, self.user)
+    
+    
+    def append_lines(self, lines):
+        GCode.append_lines(self, lines, self.user)
     
     
     def append_lookup_area(self, speed = 5000, intensity = 1):
@@ -663,7 +672,8 @@ class LaserGCode(GCode):
     
     def append_auto_block(self, gcode, ps = -1):
         for cmd in gcode:
-            if '~#FO#~' in cmd.comment and ps > 0:
+            if cmd.user['one_pass'] and ps > 0:
+                self.append_line('; >>> DEBUG >>> :: SKIP {}'.format((cmd.user, ps)))
                 continue
             
             if 'F' in cmd.command:
@@ -734,7 +744,7 @@ class LaserGCode(GCode):
                 continue
             
             self.append_line('; PASS ?!?! {}'.format(cmd.position))
-            self.append_auto_block([cmd])
+            self.auto_insert([cmd])
 
 
 
@@ -1132,7 +1142,8 @@ class InkscapePlugin(inkex.Effect):
         for c in curve:
             l_max = max(c[1][1][2], l_max)
             
-        for l in range(l_max + 1):
+#         for l in range(l_max + 1):
+        if True:
             for i in range(1, len(curve)):
                 #    Creating Gcode for curve between s=curve[i-1] and si=curve[i] start at s[0] end at s[4]=si[0]
                 s, si = curve[i - 1], curve[i]
@@ -1152,28 +1163,27 @@ class InkscapePlugin(inkex.Effect):
                                             '; [{}] <-- {}'.format(name, s[1][1][1]),
                                             'M117 >> {} <<'.format(name)))
                 
-                appendix = ';~#FO#~' if 255 == args['c'] else ''
+                self.gcode.user = { 'one_pass' : 255 == args['c'] & 255 }
+                self.gcode.append_line('; >>> DEBUG >>> :: PASS-SET {}'.format(self.gcode.user))
                  
                 if   s[1][0] == 'move':
-                    self.gcode.append_line('G1 {}{}'.format(code(si[0]), appendix))
+                    self.gcode.append_line('G1 {}'.format(code(si[0])))
                     self.gcode.append_laser_on(self.options.laser_power * args['s'])
                 elif s[1][0] == 'end':
                     self.gcode.append_laser_off()
                 elif s[1][0] == 'line':
-                    self.gcode.append_line('G1 {}{}'.format(code(si[0]), appendix))
+                    self.gcode.append_line('G1 {}'.format(code(si[0])))
                 elif s[1][0] == 'arc':
                     r = [(s[2][0] - s[0][0]), (s[2][1] - s[0][1])]
                     if (r[0] ** 2 + r[1] ** 2) > .1:
                         r1, r2 = (P(s[0]) - P(s[2])), (P(si[0]) - P(s[2]))
                         if abs(r1.mag() - r2.mag()) < 0.001:
-                            self.gcode.append_line('G{} {}{}'.format(2 if s[3] < 0 else 3,
-                                                                     code(si[0] + [None, (s[2][0] - s[0][0]), (s[2][1] - s[0][1])]),
-                                                                     appendix))
+                            self.gcode.append_line('G{} {}'.format(2 if s[3] < 0 else 3,
+                                                                   code(si[0] + [None, (s[2][0] - s[0][0]), (s[2][1] - s[0][1])])))
                         else:
-                            self.gcode.append_line('G{} {} R{}{}'.format(2 if s[3] < 0 else 3,
-                                                                         code(si[0]),
-                                                                         (r1.mag() + r2.mag()) / 2,
-                                                                         appendix))
+                            self.gcode.append_line('G{} {} R{}'.format(2 if s[3] < 0 else 3,
+                                                                       code(si[0]),
+                                                                       (r1.mag() + r2.mag()) / 2))
         
             if si[1][0] == 'end':
                 self.gcode.append_laser_off()
@@ -1614,7 +1624,7 @@ class InkscapePlugin(inkex.Effect):
                         # How to attach name and arguments?
                         p += csp
                         a.append([name, args, len(p) - 1])
-#                         self.gcode.append_line('; >>> DEBUG >>> :: {}'.format(a[-1]))
+                        self.gcode.append_line('; >>> DEBUG >>> :: CSP {}'.format(a[-1]))
                     
                 dxfpoints = sort_dxfpoints(dxfpoints)
                 curve = self.parse_curve(p, a, layer)
